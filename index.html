@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000000">
+  <title>블록폴 — 테트리스</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --green: #76b900;
+      --green-dark: #5a8d00;
+      --ink: #000000;
+      --body: #1a1a1a;
+      --mute: #757575;
+      --stone: #898989;
+      --ash: #a7a7a7;
+      --hairline: #cccccc;
+      --hairline-strong: #5e5e5e;
+      --soft: #f7f7f7;
+      --black: #000000;
+      --white: #ffffff;
+      --font: "NVIDIA EMEA", Arial, Helvetica, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; margin: 0; overflow-x: hidden; color: var(--ink); background: var(--white); font: 16px/1.5 var(--font); }
+    button { font: inherit; }
+    .shell { width: min(calc(100% - 48px), 1280px); margin: 0 auto; }
+    .topbar {
+      width: 100vw; min-height: 64px; margin-left: calc(50% - 50vw); padding: 12px max(24px, calc((100vw - 1280px) / 2));
+      display: flex; justify-content: space-between; align-items: center; gap: 16px; color: var(--white); background: var(--black);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark { width: 12px; height: 12px; flex: 0 0 12px; background: var(--green); }
+    .brand-mark svg { display: none; }
+    .brand-name { font-size: 16px; line-height: 1.25; font-weight: 700; }
+    .brand-sub { margin-top: 2px; color: rgba(255,255,255,.7); font-size: 12px; line-height: 1.25; }
+    .top-meta { display: flex; align-items: center; gap: 20px; color: rgba(255,255,255,.7); font-size: 12px; }
+    .live { display: flex; align-items: center; gap: 8px; color: var(--white); font-size: 12px; font-weight: 700; }
+    .live-dot { width: 8px; height: 8px; background: var(--green); }
+
+    .game-card { padding: 40px 0 0; background: var(--white); }
+    .game-head { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin: 0 0 24px; padding-bottom: 20px; border-bottom: 1px solid var(--hairline); }
+    .eyebrow { margin-bottom: 8px; color: var(--green-dark); font-size: 12px; line-height: 1.25; font-weight: 700; text-transform: uppercase; }
+    h1 { margin: 0; font-size: 36px; line-height: 1.25; font-weight: 700; }
+    h1 span { color: var(--mute); font-size: 18px; font-weight: 400; }
+    .session { color: var(--mute); font-size: 12px; font-weight: 700; }
+
+    .layout { display: grid; grid-template-columns: minmax(180px, 1fr) 300px minmax(210px, 1fr); gap: 24px; align-items: stretch; }
+    .side { display: flex; flex-direction: column; gap: 16px; }
+    .panel { position: relative; padding: 20px; border: 1px solid var(--hairline); border-radius: 2px; background: var(--white); }
+    .panel::before { position: absolute; top: -1px; right: -1px; width: 12px; height: 12px; background: var(--green); content: ""; }
+    .panel-label { color: var(--body); font-size: 12px; line-height: 1.35; font-weight: 700; }
+    .score-panel { flex: 1; min-height: 140px; display: flex; flex-direction: column; justify-content: space-between; }
+    .score-value { margin-top: 8px; font-size: 32px; line-height: 1.25; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .best-value { margin-top: 6px; font-size: 20px; line-height: 1.25; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 1px solid var(--hairline); }
+    .stat-row:first-of-type { margin-top: 14px; }
+    .stat-value { font-size: 18px; line-height: 1.25; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .progress { height: 4px; margin-top: 10px; overflow: hidden; background: var(--soft); }
+    .progress > span { display: block; width: 0; height: 100%; background: var(--green); transition: width .2s; }
+    .progress-caption { display: flex; justify-content: space-between; gap: 8px; margin-top: 7px; color: var(--mute); font-size: 12px; }
+
+    .board-wrap { position: relative; width: 300px; height: 600px; overflow: hidden; border: 1px solid var(--black); background: var(--black); }
+    #board { display: block; width: 300px; height: 600px; }
+    .board-overlay { position: absolute; inset: 0; display: none; place-items: center; background: rgba(0,0,0,.84); color: var(--white); text-align: center; }
+    .board-overlay.visible { display: grid; }
+    .overlay-content { padding: 24px; }
+    .overlay-kicker { color: var(--green); font-size: 12px; line-height: 1.25; font-weight: 700; }
+    .overlay-title { margin: 8px 0; font-size: 30px; line-height: 1.25; font-weight: 700; }
+    .overlay-copy { color: rgba(255,255,255,.7); font-size: 16px; line-height: 1.5; }
+    .primary-btn { min-height: 44px; padding: 11px 24px; border: 0; border-radius: 2px; color: var(--ink); background: var(--green); font-size: 16px; line-height: 1.25; font-weight: 700; cursor: pointer; }
+    .primary-btn:active { background: var(--green-dark); }
+    .overlay-content .primary-btn { min-width: 140px; margin-top: 16px; }
+
+    .queue-panel { padding-bottom: 16px; }
+    .mini-piece { display: grid; min-height: 66px; place-items: center; margin-top: 4px; }
+    .mini-piece canvas { width: 126px; height: 66px; }
+    .next-list { display: grid; gap: 2px; }
+    .next-item { display: grid; height: 48px; place-items: center; border-top: 1px solid var(--hairline); }
+    .next-item canvas { width: 126px; height: 46px; }
+    .controls-panel { flex: 1; }
+    .key-list { display: grid; gap: 10px; margin-top: 14px; }
+    .key-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--body); font-size: 14px; }
+    .keycap { min-width: 32px; min-height: 28px; padding: 2px 7px; display: inline-grid; place-items: center; border: 1px solid var(--hairline-strong); border-radius: 2px; color: var(--ink); background: var(--white); font-size: 12px; font-style: normal; font-weight: 700; }
+    .key-group { display: flex; gap: 4px; }
+
+    .game-footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 24px 0 0; padding-bottom: 40px; }
+    .status { color: var(--mute); font-size: 14px; }
+    .status b { color: var(--green-dark); font-weight: 700; }
+    .action-row { display: flex; gap: 8px; }
+    .quiet-btn { min-height: 44px; padding: 10px 16px; border: 2px solid var(--green); border-radius: 2px; color: var(--ink); background: transparent; font-size: 16px; line-height: 1.25; font-weight: 700; cursor: pointer; }
+    .quiet-btn:active { background: var(--soft); }
+    .quiet-btn.accent { color: var(--ink); background: var(--green); }
+    .quiet-btn.accent:active { background: var(--green-dark); }
+    button:focus-visible { outline: 2px solid var(--green-dark); outline-offset: 2px; }
+    .mobile-controls { display: none; }
+    .footnote {
+      width: 100vw; margin-left: calc(50% - 50vw); padding: 24px max(24px, calc((100vw - 1280px) / 2));
+      color: rgba(255,255,255,.7); background: var(--black); font-size: 12px; line-height: 1.5; font-weight: 700; text-align: center;
+    }
+    .footnote span { padding: 0 8px; color: var(--green); }
+
+    @media (max-width: 1024px) {
+      .layout { grid-template-columns: minmax(150px, 1fr) 270px minmax(175px, 1fr); gap: 16px; }
+      .board-wrap, #board { width: 270px; }
+      .board-wrap { height: 540px; }
+      #board { height: 540px; }
+      .panel { padding: 16px; }
+    }
+    @media (max-width: 767px) {
+      .shell { width: min(calc(100% - 32px), 600px); }
+      .topbar { padding-right: 16px; padding-left: 16px; }
+      .top-meta { gap: 12px; }
+      .layout { grid-template-columns: 270px minmax(0, 1fr); gap: 16px; }
+      .board-wrap { grid-column: 1; grid-row: 1 / span 2; }
+      .left-side { grid-column: 2; grid-row: 1; }
+      .right-side { grid-column: 2; grid-row: 2; }
+      .score-panel { flex: initial; }
+      .controls-panel { flex: initial; }
+      .game-card { padding-top: 32px; }
+      .game-footer { padding-bottom: 32px; }
+    }
+    @media (max-width: 600px) {
+      .shell { width: calc(100% - 24px); }
+      .topbar { min-height: 56px; margin-left: calc(50% - 50vw); padding: 10px 12px; }
+      .top-meta { gap: 8px; font-size: 12px; }
+      .top-meta .build-tag { display: none; }
+      .brand-sub { font-size: 11px; }
+      .game-card { padding-top: 24px; }
+      .game-head { align-items: start; margin-bottom: 16px; padding-bottom: 16px; }
+      h1 { font-size: 28px; }
+      h1 span { display: block; margin-top: 2px; font-size: 14px; }
+      .session { padding-top: 4px; font-size: 11px; }
+      .layout { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .board-wrap { grid-column: 1 / -1; grid-row: 1; width: min(100%, 300px); height: auto; aspect-ratio: 1 / 2; justify-self: center; }
+      #board { width: 100%; height: 100%; }
+      .side { display: contents; }
+      .left-side { grid-column: 1; grid-row: 2; display: flex; }
+      .right-side { grid-column: 2; grid-row: 2; display: flex; }
+      .panel { padding: 10px; }
+      .panel-label { font-size: 11px; }
+      .score-panel { min-height: 100px; }
+      .score-value { font-size: 22px; }
+      .best-value { font-size: 16px; }
+      .stat-row { padding: 8px 0; }
+      .stat-row:first-of-type { margin-top: 8px; }
+      .stat-value { font-size: 15px; }
+      .progress { margin-top: 7px; }
+      .progress-caption { font-size: 10px; }
+      .queue-panel { min-height: 100px; }
+      .mini-piece { min-height: 45px; }
+      .mini-piece canvas { height: 44px; }
+      .next-list { grid-template-columns: repeat(3, 1fr); gap: 0; }
+      .next-item { height: 34px; border-top: 0; border-right: 1px solid var(--hairline); }
+      .next-item:last-child { border-right: 0; }
+      .next-item canvas { width: 100%; height: 32px; }
+      .controls-panel { display: none; }
+      .game-footer { align-items: flex-start; flex-direction: column; gap: 12px; margin-top: 16px; padding-bottom: 24px; }
+      .action-row { width: 100%; }
+      .quiet-btn { flex: 1; padding: 8px; font-size: 14px; }
+      .mobile-controls { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin: 0 0 24px; }
+      .mobile-controls button { min-width: 0; min-height: 44px; padding: 4px 2px; border: 1px solid var(--green); border-radius: 2px; color: var(--ink); background: var(--white); font-size: 12px; font-weight: 700; touch-action: manipulation; }
+      .mobile-controls button:active { background: var(--soft); }
+      .footnote { padding: 18px 12px; font-size: 10px; }
+    }
+    @media (max-width: 360px) {
+      .shell { width: calc(100% - 16px); }
+      .top-meta { font-size: 10px; }
+      .mobile-controls { gap: 2px; }
+      .mobile-controls button { font-size: 10px; }
+      .footnote span { padding: 0 3px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg>
+        </div>
+        <div><div class="brand-name">짜쓰짜쓰짜쓰
+        </div><div class="brand-sub">ARCADE / 001</div></div>
+      </div>
+      <div class="top-meta"><span class="build-tag">CLASSIC MODE</span><span>NO. 001</span><span class="live"><i class="live-dot"></i>READY</span></div>
+    </header>
+
+    <section class="game-card" aria-label="테트리스 게임">
+      <div class="game-head">
+        <div><div class="eyebrow">Stack. Clear. Repeat.</div><h1>테트리스 <span>/ classic</span></h1></div>
+        <div class="session">SESSION <span id="sessionNo">001</span></div>
+      </div>
+
+      <div class="layout">
+        <aside class="side left-side" aria-label="게임 기록">
+          <section class="panel score-panel">
+            <div><div class="panel-label">점수 / SCORE</div><div class="score-value" id="score">000000</div></div>
+            <div><div class="panel-label">최고 기록 / BEST</div><div class="best-value" id="best">000000</div></div>
+          </section>
+          <section class="panel">
+            <div class="panel-label">라운드 정보</div>
+            <div class="stat-row"><span class="panel-label">레벨</span><span class="stat-value" id="level">01</span></div>
+            <div class="stat-row"><span class="panel-label">지운 줄</span><span class="stat-value" id="lines">00</span></div>
+            <div class="progress"><span id="progressBar"></span></div>
+            <div class="progress-caption"><span>다음 레벨</span><span id="levelProgress">0 / 10</span></div>
+          </section>
+        </aside>
+
+        <div class="board-wrap" aria-label="게임 보드">
+          <canvas id="board" width="300" height="600" aria-label="테트리스 보드"></canvas>
+          <div class="board-overlay" id="overlay">
+            <div class="overlay-content">
+              <div class="overlay-kicker" id="overlayKicker">PAUSED</div>
+              <div class="overlay-title" id="overlayTitle">잠깐 쉬어가기</div>
+              <div class="overlay-copy" id="overlayCopy">블록이 기다리고 있어요.</div>
+              <button class="primary-btn" id="overlayButton">계속하기</button>
+            </div>
+          </div>
+        </div>
+
+        <aside class="side right-side" aria-label="다음 블록 및 조작법">
+          <section class="panel queue-panel">
+            <div class="panel-label">보관 / HOLD</div>
+            <div class="mini-piece"><canvas id="holdCanvas" width="126" height="66"></canvas></div>
+          </section>
+          <section class="panel queue-panel">
+            <div class="panel-label">다음 블록 / NEXT</div>
+            <div class="next-list">
+              <div class="next-item"><canvas class="next-canvas" width="126" height="46"></canvas></div>
+              <div class="next-item"><canvas class="next-canvas" width="126" height="46"></canvas></div>
+              <div class="next-item"><canvas class="next-canvas" width="126" height="46"></canvas></div>
+            </div>
+          </section>
+          <section class="panel controls-panel">
+            <div class="panel-label">조작 방법</div>
+            <div class="key-list">
+              <div class="key-row"><span>이동</span><span class="key-group"><i class="keycap">←</i><i class="keycap">↓</i><i class="keycap">→</i></span></div>
+              <div class="key-row"><span>회전</span><i class="keycap">↑</i></div>
+              <div class="key-row"><span>바로 내리기</span><i class="keycap">SPACE</i></div>
+              <div class="key-row"><span>블록 보관</span><i class="keycap">C</i></div>
+              <div class="key-row"><span>일시 정지</span><i class="keycap">P</i></div>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <div class="game-footer">
+        <div class="status">상태 &nbsp; <b id="statusText">플레이 중</b></div>
+        <div class="action-row">
+          <button class="quiet-btn" id="restartButton">새 게임 ↻</button>
+          <button class="quiet-btn accent" id="pauseButton">일시 정지</button>
+        </div>
+      </div>
+      <div class="mobile-controls" aria-label="터치 조작">
+        <button data-action="left" aria-label="왼쪽 이동">←</button>
+        <button data-action="down" aria-label="아래 이동">↓</button>
+        <button data-action="rotate" aria-label="회전">↻ 회전</button>
+        <button data-action="drop" aria-label="바로 내리기">⬇ 낙하</button>
+        <button data-action="right" aria-label="오른쪽 이동">→</button>
+      </div>
+    </section>
+    <footer class="footnote">ARROW KEYS TO MOVE <span>·</span> SPACE TO DROP <span>·</span> CLEAR 10 LINES TO LEVEL UP</footer>
+  </main>
+
+  <script>
+    (() => {
+      const COLS = 10, ROWS = 20, CELL = 30;
+      const SHAPES = {
+        I: [[1, 1, 1, 1]],
+        O: [[1, 1], [1, 1]],
+        T: [[0, 1, 0], [1, 1, 1]],
+        S: [[0, 1, 1], [1, 1, 0]],
+        Z: [[1, 1, 0], [0, 1, 1]],
+        J: [[1, 0, 0], [1, 1, 1]],
+        L: [[0, 0, 1], [1, 1, 1]]
+      };
+      const boardCanvas = document.getElementById('board');
+      const ctx = boardCanvas.getContext('2d');
+      const overlay = document.getElementById('overlay');
+      const overlayKicker = document.getElementById('overlayKicker');
+      const overlayTitle = document.getElementById('overlayTitle');
+      const overlayCopy = document.getElementById('overlayCopy');
+      const overlayButton = document.getElementById('overlayButton');
+      const scoreNode = document.getElementById('score');
+      const bestNode = document.getElementById('best');
+      const levelNode = document.getElementById('level');
+      const linesNode = document.getElementById('lines');
+      const statusNode = document.getElementById('statusText');
+      const progressBar = document.getElementById('progressBar');
+      const levelProgress = document.getElementById('levelProgress');
+
+      let grid, bag, queue, current, held, canHold, score, lines, level, state, lastTime, dropClock, session = 0;
+      let best = 0;
+      try { best = Number(localStorage.getItem('blockfall-best')) || 0; } catch (_) {}
+      bestNode.textContent = format(best);
+
+      function format(value) { return String(value).padStart(6, '0'); }
+      function makeBag() {
+        const pieces = Object.keys(SHAPES);
+        for (let i = pieces.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
+        }
+        return pieces;
+      }
+      function takeType() {
+        if (!bag.length) bag = makeBag();
+        return bag.pop();
+      }
+      function makePiece(type) {
+        const matrix = SHAPES[type].map(row => row.slice());
+        return { type, matrix, x: Math.floor((COLS - matrix[0].length) / 2), y: 0 };
+      }
+      function fillQueue() { while (queue.length < 4) queue.push(takeType()); }
+      function nextPiece() {
+        fillQueue();
+        const type = queue.shift();
+        queue.push(takeType());
+        return makePiece(type);
+      }
+      function reset() {
+        grid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+        bag = []; queue = []; held = null; canHold = true;
+        score = 0; lines = 0; level = 1; state = 'playing';
+        current = nextPiece(); lastTime = 0; dropClock = 0;
+        session++;
+        document.getElementById('sessionNo').textContent = String(session).padStart(3, '0');
+        overlay.classList.remove('visible');
+        updateHUD(); renderQueue();
+      }
+      function collides(piece, dx = 0, dy = 0, matrix = piece.matrix) {
+        for (let y = 0; y < matrix.length; y++) for (let x = 0; x < matrix[y].length; x++) {
+          if (!matrix[y][x]) continue;
+          const px = piece.x + x + dx, py = piece.y + y + dy;
+          if (px < 0 || px >= COLS || py >= ROWS) return true;
+          if (py >= 0 && grid[py][px]) return true;
+        }
+        return false;
+      }
+      function rotateMatrix(matrix) {
+        return matrix[0].map((_, x) => matrix.map(row => row[x]).reverse());
+      }
+      function rotate() {
+        if (state !== 'playing') return;
+        const rotated = rotateMatrix(current.matrix);
+        for (const kick of [0, -1, 1, -2, 2]) {
+          if (!collides(current, kick, 0, rotated)) { current.matrix = rotated; current.x += kick; return; }
+        }
+      }
+      function move(dx, dy = 0) {
+        if (state !== 'playing') return false;
+        if (!collides(current, dx, dy)) { current.x += dx; current.y += dy; return true; }
+        return false;
+      }
+      function hardDrop() {
+        if (state !== 'playing') return;
+        let distance = 0;
+        while (!collides(current, 0, 1)) { current.y++; distance++; }
+        score += distance * 2;
+        lockPiece();
+      }
+      function holdPiece() {
+        if (state !== 'playing' || !canHold) return;
+        const type = current.type;
+        if (held === null) current = nextPiece();
+        else current = makePiece(held);
+        held = type; canHold = false;
+        if (collides(current)) endGame();
+        renderQueue();
+      }
+      function lockPiece() {
+        current.matrix.forEach((row, y) => row.forEach((value, x) => {
+          if (value && current.y + y >= 0) grid[current.y + y][current.x + x] = current.type;
+        }));
+        clearLines();
+        current = nextPiece(); canHold = true;
+        if (collides(current)) endGame();
+        renderQueue();
+      }
+      function clearLines() {
+        let cleared = 0;
+        for (let y = ROWS - 1; y >= 0; y--) {
+          if (grid[y].every(Boolean)) {
+            grid.splice(y, 1); grid.unshift(Array(COLS).fill(null)); cleared++; y++;
+          }
+        }
+        if (cleared) {
+          const points = [0, 100, 300, 500, 800];
+          score += points[cleared] * level;
+          lines += cleared;
+          level = Math.floor(lines / 10) + 1;
+        }
+      }
+      function endGame() {
+        state = 'over';
+        if (score > best) {
+          best = score;
+          try { localStorage.setItem('blockfall-best', String(best)); } catch (_) {}
+        }
+        updateHUD();
+        showOverlay('GAME OVER', '게임 종료', '점수 ' + format(score) + '점 · 다시 한 판 도전해 볼까요?', '다시 시작');
+      }
+      function togglePause() {
+        if (state === 'playing') {
+          state = 'paused';
+          showOverlay('PAUSED', '잠깐 쉬어가기', '블록이 기다리고 있어요.', '계속하기');
+        } else if (state === 'paused') {
+          state = 'playing'; lastTime = 0; overlay.classList.remove('visible');
+        }
+      }
+      function showOverlay(kicker, title, copy, button) {
+        overlayKicker.textContent = kicker;
+        overlayTitle.textContent = title;
+        overlayCopy.textContent = copy;
+        overlayButton.textContent = button;
+        overlay.classList.add('visible');
+      }
+      function updateHUD() {
+        scoreNode.textContent = format(score);
+        bestNode.textContent = format(best);
+        levelNode.textContent = String(level).padStart(2, '0');
+        linesNode.textContent = String(lines).padStart(2, '0');
+        const progress = lines % 10;
+        progressBar.style.width = (progress * 10) + '%';
+        levelProgress.textContent = progress + ' / 10';
+        statusNode.textContent = state === 'playing' ? '플레이 중' : state === 'paused' ? '일시 정지' : '게임 종료';
+      }
+      function drawBlock(context, x, y, size, alpha = 1) {
+        context.save(); context.globalAlpha = alpha;
+        context.translate(x, y);
+        context.scale(size / 30, size / 30);
+        context.fillStyle = '#76b900';
+        context.beginPath(); context.roundRect(1, 1, 28, 28, 2); context.fill();
+        context.strokeStyle = '#000000'; context.lineWidth = 1.15;
+        context.beginPath(); context.roundRect(1.6, 1.6, 26.8, 26.8, 2); context.stroke();
+        context.fillStyle = 'rgba(255,255,255,.18)';
+        context.fillRect(4, 4, 22, 1);
+        context.restore();
+      }
+      function drawPiece(context, piece, alpha = 1, cell = CELL, offsetX = 0, offsetY = 0) {
+        piece.matrix.forEach((row, y) => row.forEach((value, x) => {
+          if (value) drawBlock(context, offsetX + (piece.x + x) * cell, offsetY + (piece.y + y) * cell, cell, alpha);
+        }));
+      }
+      function renderBoard() {
+        ctx.clearRect(0, 0, boardCanvas.width, boardCanvas.height);
+        ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, boardCanvas.width, boardCanvas.height);
+        ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1;
+        for (let x = 1; x < COLS; x++) { ctx.beginPath(); ctx.moveTo(x * CELL + .5, 0); ctx.lineTo(x * CELL + .5, ROWS * CELL); ctx.stroke(); }
+        for (let y = 1; y < ROWS; y++) { ctx.beginPath(); ctx.moveTo(0, y * CELL + .5); ctx.lineTo(COLS * CELL, y * CELL + .5); ctx.stroke(); }
+        grid.forEach((row, y) => row.forEach((type, x) => { if (type) drawBlock(ctx, x * CELL, y * CELL, CELL); }));
+        if (current && state !== 'over') {
+          let ghostY = current.y;
+          while (!collides({ ...current, y: ghostY }, 0, 1)) ghostY++;
+          drawPiece(ctx, { ...current, y: ghostY }, .18);
+          drawPiece(ctx, current);
+        }
+      }
+      function renderMini(canvas, type) {
+        const context = canvas.getContext('2d');
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        if (!type) return;
+        const matrix = SHAPES[type], cell = Math.min(19, (canvas.width - 12) / matrix[0].length, (canvas.height - 8) / matrix.length);
+        const width = matrix[0].length * cell, height = matrix.length * cell;
+        const ox = (canvas.width - width) / 2, oy = (canvas.height - height) / 2;
+        matrix.forEach((row, y) => row.forEach((value, x) => { if (value) drawBlock(context, ox + x * cell, oy + y * cell, cell); }));
+      }
+      function renderQueue() {
+        renderMini(document.getElementById('holdCanvas'), held);
+        document.querySelectorAll('.next-canvas').forEach((canvas, index) => renderMini(canvas, queue[index]));
+      }
+      function frame(time = 0) {
+        const delta = lastTime ? Math.min(time - lastTime, 50) : 0;
+        lastTime = time;
+        if (state === 'playing') {
+          dropClock += delta;
+          const interval = Math.max(75, 850 * Math.pow(.82, level - 1));
+          if (dropClock >= interval) {
+            if (!move(0, 1)) lockPiece();
+            dropClock = 0;
+          }
+          updateHUD();
+        }
+        renderBoard();
+        requestAnimationFrame(frame);
+      }
+      document.addEventListener('keydown', event => {
+        const key = event.key.toLowerCase();
+        if (['arrowleft', 'arrowright', 'arrowdown', 'arrowup', ' ', 'c', 'p'].includes(key)) event.preventDefault();
+        if (key === 'p' || key === 'escape') { togglePause(); return; }
+        if (key === 'r') { reset(); return; }
+        if (state !== 'playing') return;
+        if (key === 'arrowleft' || key === 'a') move(-1);
+        else if (key === 'arrowright' || key === 'd') move(1);
+        else if (key === 'arrowdown' || key === 's') { if (move(0, 1)) { score++; dropClock = 0; } else lockPiece(); }
+        else if (key === 'arrowup' || key === 'w' || key === 'x') rotate();
+        else if (key === ' ') hardDrop();
+        else if (key === 'c' || key === 'shift') holdPiece();
+      });
+      document.getElementById('restartButton').addEventListener('click', reset);
+      document.getElementById('pauseButton').addEventListener('click', togglePause);
+      overlayButton.addEventListener('click', () => { if (state === 'over') reset(); else togglePause(); });
+      document.querySelectorAll('.mobile-controls button').forEach(button => button.addEventListener('click', () => {
+        const action = button.dataset.action;
+        if (action === 'left') move(-1);
+        else if (action === 'right') move(1);
+        else if (action === 'down') { if (move(0, 1)) { score++; dropClock = 0; } else lockPiece(); }
+        else if (action === 'rotate') rotate();
+        else if (action === 'drop') hardDrop();
+      }));
+
+      reset();
+      requestAnimationFrame(frame);
+    })();
+  </script>
+</body>
+</html>
