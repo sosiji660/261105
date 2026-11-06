@@ -95,12 +95,25 @@
     .auth-actions { display: flex; gap: 8px; }
     .auth-actions button { flex: 1; }
     .auth-note, .auth-message { margin: 10px 0 0; color: var(--mute); font-size: 12px; }
+    [hidden] { display: none !important; }
+    .avatar-editor { display: flex; align-items: flex-start; gap: 12px; margin: 16px 0; padding-top: 16px; border-top: 1px solid var(--hairline); }
+    .avatar-thumb { width: 64px; height: 64px; flex: 0 0 64px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--hairline); border-radius: 2px; background: var(--soft); color: var(--green-dark); font-weight: 700; }
+    .avatar-thumb img, .leader-avatar { width: 100%; height: 100%; object-fit: cover; }
+    .avatar-form { min-width: 0; flex: 1; display: grid; gap: 8px; }
+    .avatar-form label { font-size: 12px; font-weight: 700; }
+    .avatar-form textarea { width: 100%; min-height: 78px; padding: 10px 12px; resize: vertical; border: 1px solid var(--hairline-strong); border-radius: 2px; font: inherit; font-size: 14px; }
+    .avatar-form .quiet-btn { width: 100%; }
+    .avatar-form button:disabled { color: var(--mute); background: var(--soft); border-color: var(--hairline); cursor: not-allowed; }
     .leaderboard-head, .leader-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 90px 72px; gap: 8px; align-items: center; }
     .leaderboard-head { padding: 8px 0; border-bottom: 1px solid var(--hairline-strong); color: var(--mute); font-size: 12px; }
     .leader-row { min-height: 40px; border-bottom: 1px solid var(--hairline); font-variant-numeric: tabular-nums; }
     .leader-row:last-child { border-bottom: 0; }
     .leader-rank, .leader-score { font-weight: 700; }
     .leader-score, .leader-level { text-align: right; }
+    .leader-user { min-width: 0; display: flex; align-items: center; gap: 8px; }
+    .leader-user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .leader-avatar, .leader-avatar-fallback { width: 28px; height: 28px; flex: 0 0 28px; border-radius: 2px; }
+    .leader-avatar-fallback { display: grid; place-items: center; background: var(--soft); color: var(--green-dark); font-size: 12px; font-weight: 700; }
 
     .game-footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 24px 0 0; padding-bottom: 40px; }
     .status { color: var(--mute); font-size: 14px; }
@@ -289,7 +302,20 @@
           <input id="passwordInput" type="password" autocomplete="current-password" minlength="6" required placeholder="비밀번호 (6자 이상)" aria-label="비밀번호">
           <div class="auth-actions"><button class="quiet-btn accent" type="submit" data-auth-action="signup">회원가입</button><button class="quiet-btn" type="submit" data-auth-action="signin">로그인</button></div>
         </form><p class="auth-note">회원가입하려면 닉네임을 입력하세요. 이메일 확인 없이 바로 이용할 수 있습니다.</p></div>
-        <div id="signedInView" hidden><strong id="accountName"></strong><p class="auth-note">로그인됨 · 게임이 끝나면 점수가 자동 기록됩니다.</p><button class="quiet-btn" id="signOutButton" type="button">로그아웃</button></div>
+        <div id="signedInView" hidden>
+          <strong id="accountName"></strong><p class="auth-note">로그인됨 · 게임이 끝나면 점수가 자동 기록됩니다.</p>
+          <div class="avatar-editor">
+            <div class="avatar-thumb"><img id="accountAvatar" alt="내 프로필 이미지" hidden><span id="avatarFallback">?</span></div>
+            <form class="avatar-form" id="avatarForm">
+              <label for="avatarPrompt">GPT Image 2 프로필 이미지</label>
+              <textarea id="avatarPrompt" minlength="4" maxlength="200" required placeholder="예: 초록빛 우주 헬멧을 쓴 귀여운 탐험가"></textarea>
+              <button class="quiet-btn accent" id="generateAvatarButton" type="submit">이미지 만들기</button>
+              <span class="auth-note">계정당 하루 3회 요청할 수 있습니다. 생성에는 시간이 걸릴 수 있습니다.</span>
+            </form>
+          </div>
+          <p class="auth-message" id="avatarMessage" role="status" aria-live="polite"></p>
+          <button class="quiet-btn" id="signOutButton" type="button">로그아웃</button>
+        </div>
         <p class="auth-message" id="authMessage" role="status" aria-live="polite">Supabase 연결 정보를 기다리는 중</p>
       </section>
       <section class="leaderboard-panel"><h2 class="section-title">점수 순위 / LEADERBOARD</h2>
@@ -330,8 +356,14 @@
       const levelProgress = document.getElementById('levelProgress');
       const authMessage = document.getElementById('authMessage');
       const leaderboardRows = document.getElementById('leaderboardRows');
+      const avatarMessage = document.getElementById('avatarMessage');
+      const accountAvatar = document.getElementById('accountAvatar');
+      const avatarFallback = document.getElementById('avatarFallback');
+      const generateAvatarButton = document.getElementById('generateAvatarButton');
       let supabaseClient = null, currentUser = null, scoreSavedThisGame = false;
+      let avatarEnabled = false, avatarBusy = false;
       document.getElementById('authForm').addEventListener('submit', handleAuth);
+      document.getElementById('avatarForm').addEventListener('submit', generateAvatar);
       document.getElementById('signOutButton').addEventListener('click', async () => {
         if (!supabaseClient) return;
         const { error } = await supabaseClient.auth.signOut();
@@ -342,7 +374,7 @@
         supabaseClient = window.supabase.createClient(config.url, config.anonKey);
         supabaseClient.auth.onAuthStateChange((_event, session) => {
           currentUser = session?.user || null; renderAccount();
-          if (currentUser) loadLeaderboard();
+          if (currentUser) setTimeout(() => loadLeaderboard(), 0);
         });
         supabaseClient.auth.getSession().then(({ data }) => {
           currentUser = data.session?.user || null; renderAccount();
@@ -354,6 +386,66 @@
         document.getElementById('signedOutView').hidden = !!currentUser;
         document.getElementById('signedInView').hidden = !currentUser;
         document.getElementById('accountName').textContent = currentUser?.user_metadata?.username || currentUser?.email || '';
+        generateAvatarButton.disabled = !currentUser || !avatarEnabled || avatarBusy;
+        if (currentUser) setTimeout(() => { loadProfile(); checkAvatarFeature(); }, 0);
+        else { accountAvatar.hidden = true; avatarFallback.hidden = false; avatarMessage.textContent = ''; }
+      }
+      function avatarUrl(path) {
+        return /^[0-9a-f-]{36}\/[0-9a-f-]{36}\.webp$/i.test(path || '')
+          ? `${config.url}/storage/v1/object/public/avatars/${path}` : '';
+      }
+      function showAvatar(path) {
+        const url = avatarUrl(path);
+        accountAvatar.hidden = !url;
+        avatarFallback.hidden = !!url;
+        if (url) accountAvatar.src = url;
+      }
+      accountAvatar.addEventListener('error', () => { accountAvatar.hidden = true; avatarFallback.hidden = false; });
+      async function loadProfile() {
+        const userId = currentUser?.id;
+        if (!userId || !supabaseClient) return;
+        const { data, error } = await supabaseClient.from('profiles').select('username, avatar_path').eq('id', userId).single();
+        if (currentUser?.id !== userId) return;
+        if (error) { avatarMessage.textContent = '프로필을 불러오지 못했습니다.'; return; }
+        document.getElementById('accountName').textContent = data.username;
+        avatarFallback.textContent = data.username.slice(0, 1).toUpperCase();
+        showAvatar(data.avatar_path);
+      }
+      async function checkAvatarFeature() {
+        try {
+          const response = await fetch('/api/generate-avatar', { cache: 'no-store' });
+          const data = await response.json();
+          avatarEnabled = response.ok && data.enabled === true;
+          avatarMessage.textContent = avatarEnabled ? '' : '이미지 생성 기능을 준비 중입니다.';
+        } catch (_) { avatarEnabled = false; avatarMessage.textContent = '이미지 생성 기능을 연결할 수 없습니다.'; }
+        generateAvatarButton.disabled = !currentUser || !avatarEnabled || avatarBusy;
+      }
+      async function generateAvatar(event) {
+        event.preventDefault();
+        if (!currentUser || !avatarEnabled || avatarBusy) return;
+        const userId = currentUser.id;
+        avatarBusy = true;
+        generateAvatarButton.disabled = true;
+        avatarMessage.textContent = '프로필 이미지를 만드는 중입니다. 잠시 기다려 주세요.';
+        try {
+          const { data: { session }, error } = await supabaseClient.auth.getSession();
+          if (error || !session) throw new Error('로그인이 만료되었습니다. 다시 로그인해 주세요.');
+          const response = await fetch('/api/generate-avatar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ prompt: document.getElementById('avatarPrompt').value.trim() })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || '이미지 생성에 실패했습니다.');
+          if (currentUser?.id === userId) {
+            accountAvatar.src = result.avatarUrl;
+            accountAvatar.hidden = false;
+            avatarFallback.hidden = true;
+            avatarMessage.textContent = '새 프로필 이미지가 저장되었습니다.';
+            await loadLeaderboard();
+          }
+        } catch (error) { avatarMessage.textContent = error.message || '이미지 생성에 실패했습니다.'; }
+        finally { avatarBusy = false; generateAvatarButton.disabled = !currentUser || !avatarEnabled; }
       }
       async function handleAuth(event) {
         event.preventDefault();
@@ -374,16 +466,27 @@
       }
       async function loadLeaderboard() {
         if (!supabaseClient) return;
-        const { data, error } = await supabaseClient.from('scores').select('score, level, created_at, profiles(username)').order('score', { ascending: false }).order('created_at', { ascending: true }).limit(10);
+        const { data, error } = await supabaseClient.from('scores').select('score, level, created_at, profiles(username, avatar_path)').order('score', { ascending: false }).order('created_at', { ascending: true }).limit(10);
         if (error) { leaderboardRows.innerHTML = '<div class="leaderboard-empty">순위를 불러오지 못했습니다. DB 설정을 확인하세요.</div>'; return; }
         if (!data?.length) { leaderboardRows.innerHTML = '<div class="leaderboard-empty">아직 기록이 없습니다. 첫 점수를 등록해 보세요.</div>'; return; }
         leaderboardRows.replaceChildren(...data.map((entry, index) => {
           const row = document.createElement('div'); row.className = 'leader-row';
-          [String(index + 1).padStart(2, '0'), entry.profiles?.username || '이름 없음', Number(entry.score).toLocaleString('ko-KR'), String(entry.level).padStart(2, '0')].forEach((value, column) => {
-            const cell = document.createElement('span'); cell.textContent = value;
-            if (column === 0) cell.className = 'leader-rank'; if (column === 2) cell.className = 'leader-score'; if (column === 3) cell.className = 'leader-level'; row.append(cell);
-          }); return row;
+          const rank = document.createElement('span'); rank.className = 'leader-rank'; rank.textContent = String(index + 1).padStart(2, '0'); row.append(rank);
+          const userCell = document.createElement('span'); userCell.className = 'leader-user';
+          const username = entry.profiles?.username || '이름 없음';
+          const imageUrl = avatarUrl(entry.profiles?.avatar_path);
+          if (imageUrl) {
+            const avatar = document.createElement('img'); avatar.className = 'leader-avatar'; avatar.src = imageUrl; avatar.alt = '';
+            avatar.addEventListener('error', () => { avatar.replaceWith(makeAvatarFallback(username)); }); userCell.append(avatar);
+          } else userCell.append(makeAvatarFallback(username));
+          const name = document.createElement('span'); name.className = 'leader-user-name'; name.textContent = username; userCell.append(name); row.append(userCell);
+          const points = document.createElement('span'); points.className = 'leader-score'; points.textContent = Number(entry.score).toLocaleString('ko-KR'); row.append(points);
+          const rankLevel = document.createElement('span'); rankLevel.className = 'leader-level'; rankLevel.textContent = String(entry.level).padStart(2, '0'); row.append(rankLevel);
+          return row;
         }));
+      }
+      function makeAvatarFallback(username) {
+        const fallback = document.createElement('span'); fallback.className = 'leader-avatar-fallback'; fallback.textContent = username.slice(0, 1).toUpperCase(); return fallback;
       }
       async function saveScore() {
         if (scoreSavedThisGame) return;
