@@ -86,6 +86,22 @@
     .keycap { min-width: 32px; min-height: 28px; padding: 2px 7px; display: inline-grid; place-items: center; border: 1px solid var(--hairline-strong); border-radius: 2px; color: var(--ink); background: var(--white); font-size: 12px; font-style: normal; font-weight: 700; }
     .key-group { display: flex; gap: 4px; }
 
+    .account-area { display: grid; grid-template-columns: minmax(260px, .8fr) minmax(0, 1.2fr); gap: 24px; margin: 0 0 40px; }
+    .account-panel, .leaderboard-panel { padding: 20px; border: 1px solid var(--hairline); position: relative; }
+    .account-panel::before, .leaderboard-panel::before { position: absolute; top: -1px; right: -1px; width: 12px; height: 12px; background: var(--green); content: ""; }
+    .section-title { margin: 0 0 14px; font-size: 18px; }
+    .auth-form { display: grid; gap: 9px; }
+    .auth-form input { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--hairline-strong); border-radius: 2px; font: inherit; }
+    .auth-actions { display: flex; gap: 8px; }
+    .auth-actions button { flex: 1; }
+    .auth-note, .auth-message { margin: 10px 0 0; color: var(--mute); font-size: 12px; }
+    .leaderboard-head, .leader-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 90px 72px; gap: 8px; align-items: center; }
+    .leaderboard-head { padding: 8px 0; border-bottom: 1px solid var(--hairline-strong); color: var(--mute); font-size: 12px; }
+    .leader-row { min-height: 40px; border-bottom: 1px solid var(--hairline); font-variant-numeric: tabular-nums; }
+    .leader-row:last-child { border-bottom: 0; }
+    .leader-rank, .leader-score { font-weight: 700; }
+    .leader-score, .leader-level { text-align: right; }
+
     .game-footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 24px 0 0; padding-bottom: 40px; }
     .status { color: var(--mute); font-size: 14px; }
     .status b { color: var(--green-dark); font-weight: 700; }
@@ -164,6 +180,9 @@
       .mobile-controls button { min-width: 0; min-height: 44px; padding: 4px 2px; border: 1px solid var(--green); border-radius: 2px; color: var(--ink); background: var(--white); font-size: 12px; font-weight: 700; touch-action: manipulation; }
       .mobile-controls button:active { background: var(--soft); }
       .footnote { padding: 18px 12px; font-size: 10px; }
+      .account-area { grid-template-columns: 1fr; gap: 12px; margin-bottom: 24px; }
+      .account-panel, .leaderboard-panel { padding: 14px; }
+      .leaderboard-head, .leader-row { grid-template-columns: 36px minmax(0, 1fr) 74px 52px; gap: 6px; font-size: 13px; }
     }
     @media (max-width: 360px) {
       .shell { width: calc(100% - 16px); }
@@ -261,9 +280,28 @@
         <button data-action="right" aria-label="오른쪽 이동">→</button>
       </div>
     </section>
+    <section class="account-area" aria-label="계정 및 순위">
+      <section class="account-panel">
+        <h2 class="section-title">계정 / ACCOUNT</h2>
+        <div id="signedOutView"><form class="auth-form" id="authForm">
+          <input id="usernameInput" type="text" autocomplete="nickname" maxlength="20" placeholder="닉네임 (회원가입 시 입력)" aria-label="닉네임">
+          <input id="emailInput" type="email" autocomplete="email" required placeholder="이메일" aria-label="이메일">
+          <input id="passwordInput" type="password" autocomplete="current-password" minlength="6" required placeholder="비밀번호 (6자 이상)" aria-label="비밀번호">
+          <div class="auth-actions"><button class="quiet-btn accent" type="submit" data-auth-action="signup">회원가입</button><button class="quiet-btn" type="submit" data-auth-action="signin">로그인</button></div>
+        </form><p class="auth-note">회원가입하려면 닉네임을 입력하세요. 이메일 확인 없이 바로 이용할 수 있습니다.</p></div>
+        <div id="signedInView" hidden><strong id="accountName"></strong><p class="auth-note">로그인됨 · 게임이 끝나면 점수가 자동 기록됩니다.</p><button class="quiet-btn" id="signOutButton" type="button">로그아웃</button></div>
+        <p class="auth-message" id="authMessage" role="status" aria-live="polite">Supabase 연결 정보를 기다리는 중</p>
+      </section>
+      <section class="leaderboard-panel"><h2 class="section-title">점수 순위 / LEADERBOARD</h2>
+        <div class="leaderboard-head"><span>순위</span><span>닉네임</span><span style="text-align:right">점수</span><span style="text-align:right">레벨</span></div>
+        <div id="leaderboardRows" aria-live="polite"><div class="leaderboard-empty">Supabase 연결 후 순위를 불러옵니다.</div></div>
+      </section>
+    </section>
     <footer class="footnote">ARROW KEYS TO MOVE <span>·</span> SPACE TO DROP <span>·</span> CLEAR 10 LINES TO LEVEL UP</footer>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
   <script>
     (() => {
       const COLS = 10, ROWS = 20, CELL = 30;
@@ -290,6 +328,71 @@
       const statusNode = document.getElementById('statusText');
       const progressBar = document.getElementById('progressBar');
       const levelProgress = document.getElementById('levelProgress');
+      const authMessage = document.getElementById('authMessage');
+      const leaderboardRows = document.getElementById('leaderboardRows');
+      let supabaseClient = null, currentUser = null, scoreSavedThisGame = false;
+      document.getElementById('authForm').addEventListener('submit', handleAuth);
+      document.getElementById('signOutButton').addEventListener('click', async () => {
+        if (!supabaseClient) return;
+        const { error } = await supabaseClient.auth.signOut();
+        if (error) authMessage.textContent = error.message;
+      });
+      const config = window.BLOCKFALL_SUPABASE || {};
+      if (window.supabase && config.url && config.anonKey && !config.url.includes('YOUR_')) {
+        supabaseClient = window.supabase.createClient(config.url, config.anonKey);
+        supabaseClient.auth.onAuthStateChange((_event, session) => {
+          currentUser = session?.user || null; renderAccount();
+          if (currentUser) loadLeaderboard();
+        });
+        supabaseClient.auth.getSession().then(({ data }) => {
+          currentUser = data.session?.user || null; renderAccount();
+          authMessage.textContent = 'Supabase에 연결되었습니다.'; loadLeaderboard();
+        });
+      }
+
+      function renderAccount() {
+        document.getElementById('signedOutView').hidden = !!currentUser;
+        document.getElementById('signedInView').hidden = !currentUser;
+        document.getElementById('accountName').textContent = currentUser?.user_metadata?.username || currentUser?.email || '';
+      }
+      async function handleAuth(event) {
+        event.preventDefault();
+        if (!supabaseClient) { authMessage.textContent = 'supabase-config.js에 프로젝트 URL과 anon key를 설정하세요.'; return; }
+        const action = event.submitter?.dataset.authAction;
+        const email = document.getElementById('emailInput').value.trim();
+        const password = document.getElementById('passwordInput').value;
+        const username = document.getElementById('usernameInput').value.trim();
+        try {
+          let result;
+          if (action === 'signup') {
+            if (username.length < 2) throw new Error('닉네임을 2자 이상 입력하세요.');
+            result = await supabaseClient.auth.signUp({ email, password, options: { data: { username } } });
+          } else result = await supabaseClient.auth.signInWithPassword({ email, password });
+          if (result.error) throw result.error;
+          authMessage.textContent = action === 'signup' && !result.data.session ? '계정이 만들어졌습니다. Supabase에서 Confirm email을 꺼야 바로 로그인됩니다.' : (action === 'signup' ? '회원가입 및 로그인이 완료되었습니다.' : '로그인되었습니다.');
+        } catch (error) { authMessage.textContent = error.message || '계정 처리 중 오류가 발생했습니다.'; }
+      }
+      async function loadLeaderboard() {
+        if (!supabaseClient) return;
+        const { data, error } = await supabaseClient.from('scores').select('score, level, created_at, profiles(username)').order('score', { ascending: false }).order('created_at', { ascending: true }).limit(10);
+        if (error) { leaderboardRows.innerHTML = '<div class="leaderboard-empty">순위를 불러오지 못했습니다. DB 설정을 확인하세요.</div>'; return; }
+        if (!data?.length) { leaderboardRows.innerHTML = '<div class="leaderboard-empty">아직 기록이 없습니다. 첫 점수를 등록해 보세요.</div>'; return; }
+        leaderboardRows.replaceChildren(...data.map((entry, index) => {
+          const row = document.createElement('div'); row.className = 'leader-row';
+          [String(index + 1).padStart(2, '0'), entry.profiles?.username || '이름 없음', Number(entry.score).toLocaleString('ko-KR'), String(entry.level).padStart(2, '0')].forEach((value, column) => {
+            const cell = document.createElement('span'); cell.textContent = value;
+            if (column === 0) cell.className = 'leader-rank'; if (column === 2) cell.className = 'leader-score'; if (column === 3) cell.className = 'leader-level'; row.append(cell);
+          }); return row;
+        }));
+      }
+      async function saveScore() {
+        if (scoreSavedThisGame) return;
+        scoreSavedThisGame = true;
+        if (!supabaseClient || !currentUser) { authMessage.textContent = '점수를 순위에 기록하려면 Supabase에 연결한 뒤 로그인하세요.'; return; }
+        const { error } = await supabaseClient.from('scores').insert({ user_id: currentUser.id, score, lines, level });
+        if (error) authMessage.textContent = '점수 저장 실패: ' + error.message;
+        else { authMessage.textContent = '점수가 순위에 기록되었습니다.'; await loadLeaderboard(); }
+      }
 
       let grid, bag, queue, current, held, canHold, score, lines, level, state, lastTime, dropClock, session = 0;
       let best = 0;
@@ -324,6 +427,7 @@
         grid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
         bag = []; queue = []; held = null; canHold = true;
         score = 0; lines = 0; level = 1; state = 'playing';
+        scoreSavedThisGame = false;
         current = nextPiece(); lastTime = 0; dropClock = 0;
         session++;
         document.getElementById('sessionNo').textContent = String(session).padStart(3, '0');
@@ -395,6 +499,7 @@
       }
       function endGame() {
         state = 'over';
+        saveScore();
         if (score > best) {
           best = score;
           try { localStorage.setItem('blockfall-best', String(best)); } catch (_) {}
